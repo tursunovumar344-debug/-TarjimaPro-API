@@ -4,7 +4,8 @@ import os
 
 app = Flask(__name__)
 
-MYMEMORY_URL = "https://api.mymemory.translated.net/get"
+# LibreTranslate public endpoint
+TRANSLATE_URL = "https://translate.astian.org/translate"
 
 
 @app.route("/")
@@ -38,30 +39,29 @@ def translate():
                 "error": "Tarjima qilinadigan matn kiritilmagan"
             }), 400
 
-        if source == "auto":
-            source = "en"
+        payload = {
+            "q": text,
+            "source": source,
+            "target": target,
+            "format": "text"
+        }
 
-        langpair = f"{source}|{target}"
-
-        response = requests.get(
-            MYMEMORY_URL,
-            params={
-                "q": text,
-                "langpair": langpair
-            },
-            timeout=20
+        response = requests.post(
+            TRANSLATE_URL,
+            json=payload,
+            timeout=30
         )
 
         response.raise_for_status()
-        data = response.json()
 
-        translated = data.get("responseData", {}).get("translatedText", "")
+        result = response.json()
+        translated = result.get("translatedText", "")
 
         if not translated:
             return jsonify({
                 "success": False,
                 "error": "Tarjima natijasi olinmadi",
-                "details": data
+                "details": result
             }), 502
 
         return jsonify({
@@ -71,12 +71,6 @@ def translate():
             "originalText": text,
             "translatedText": translated
         })
-
-    except requests.exceptions.Timeout:
-        return jsonify({
-            "success": False,
-            "error": "Tarjima serveri javob berishi uchun vaqt tugadi"
-        }), 504
 
     except requests.exceptions.RequestException as e:
         return jsonify({
