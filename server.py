@@ -1,115 +1,98 @@
-import os
-import requests
 from flask import Flask, request, jsonify
-from flask_cors import CORS
+import requests
+import os
 
 app = Flask(__name__)
-CORS(app)
 
-TRANSLATE_URL = "https://api.mymemory.translated.net/get"
+MYMEMORY_URL = "https://api.mymemory.translated.net/get"
 
 
 @app.route("/")
 def home():
-    return "TarjimaPro API ishlayapti!"
+    return jsonify({
+        "status": "ok",
+        "message": "TarjimaPro API ishlayapti"
+    })
 
 
-# API ishlayotganini oddiy tekshirish
-@app.route("/test")
-def test():
-    try:
-        response = requests.get(
-            TRANSLATE_URL,
-            params={
-                "q": "I have a computer.",
-                "langpair": "en|uz"
-            },
-            timeout=30
-        )
-
-        return jsonify({
-            "server": "OK",
-            "status": response.status_code,
-            "result": response.json()
-        })
-
-    except Exception as e:
-        return jsonify({
-            "server": "ERROR",
-            "error": str(e)
-        }), 500
-
-
-# Asosiy tarjima API
-@app.route("/translate", methods=["POST"])
+@app.route("/translate", methods=["GET", "POST"])
 def translate():
-
     try:
-        data = request.get_json(silent=True)
+        if request.method == "POST":
+            data = request.get_json(silent=True) or {}
+            text = data.get("text", "")
+            source = data.get("source", "auto")
+            target = data.get("target", "en")
+        else:
+            text = request.args.get("text", "")
+            source = request.args.get("source", "auto")
+            target = request.args.get("target", "en")
 
-        if not data:
-            return jsonify({
-                "error": "Ma'lumot yuborilmadi"
-            }), 400
-
-        text = str(data.get("text", "")).strip()
-        source = str(data.get("source", "en")).strip()
-        target = str(data.get("target", "uz")).strip()
+        text = str(text).strip()
+        source = str(source).strip().lower()
+        target = str(target).strip().lower()
 
         if not text:
             return jsonify({
-                "error": "Tarjima qilinadigan matn bo'sh"
+                "success": False,
+                "error": "Tarjima qilinadigan matn kiritilmagan"
             }), 400
 
+        if source == "auto":
+            source = "en"
+
+        langpair = f"{source}|{target}"
+
         response = requests.get(
-            TRANSLATE_URL,
+            MYMEMORY_URL,
             params={
                 "q": text,
-                "langpair": f"{source}|{target}"
+                "langpair": langpair
             },
-            timeout=30
+            timeout=20
         )
 
         response.raise_for_status()
+        data = response.json()
 
-        result = response.json()
-
-        translated = (
-            result
-            .get("responseData", {})
-            .get("translatedText", "")
-        )
+        translated = data.get("responseData", {}).get("translatedText", "")
 
         if not translated:
             return jsonify({
+                "success": False,
                 "error": "Tarjima natijasi olinmadi",
-                "api_response": result
-            }), 500
+                "details": data
+            }), 502
 
         return jsonify({
+            "success": True,
+            "source": source,
+            "target": target,
+            "originalText": text,
             "translatedText": translated
-        }), 200
+        })
 
     except requests.exceptions.Timeout:
         return jsonify({
-            "error": "Tarjima serveri vaqtida javob bermadi"
+            "success": False,
+            "error": "Tarjima serveri javob berishi uchun vaqt tugadi"
         }), 504
 
     except requests.exceptions.RequestException as e:
         return jsonify({
-            "error": "Tarjima xizmatida xatolik",
+            "success": False,
+            "error": "Tarjima xizmatiga ulanib bo‘lmadi",
             "details": str(e)
         }), 502
 
     except Exception as e:
         return jsonify({
+            "success": False,
             "error": "Server xatosi",
             "details": str(e)
         }), 500
 
 
 if __name__ == "__main__":
-    app.run(
-        host="0.0.0.0",
-        port=int(os.environ.get("PORT", 5000))
-    )
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
